@@ -1,14 +1,17 @@
 (function () {
-    //屠龙0.0.2  版权归 “潮目 - Hypeeyes”所有，未经授权不得转发
-    let keyWord = '+taglessx, +tees';  // +box,+logo,-bear
+    //屠龙0.0.3  版权归 “潮目 - Hypeeyes”所有，未经授权不得转发
+    let keyWord = '+box, +logo';  // +box,+logo,-bear
     let categories = ["Jackets", "Coats", "Shirts", "Tops/Sweaters", "Sweatshirts", "Pants", "Shorts", "T-Shirts", "Hats", "Bags", "Accessories", "Shoes", "Skate"]
     // 0 -> "Jackets", 1 -> "Coats", 2-> "Shirts", 3 -> "Tops/Sweaters", 4 ->"Sweatshirts", 5->"Pants", 6->"Shorts", 7->"T-Shirts",
     //8-> "Hats", 9->"Bags", 10->"Accessories", 11->"Shoes", 12->"Skate"
     let category = categories[10];
-    let preferredSize = 'small'  // 尺码没有了会选择默认尺码
+    let preferredSize = 'any';  // 尺码没有了会选择默认尺码
     let preferColor = 'any'; // 颜色没有了回选最后一个有货的，填any回选第一个颜色有货的
-    let autoCheckout = false; // 自动结账， 
-    let checkout_delay = 2500; // 结账延迟设置， 2500 = 2.5秒
+    let autoCheckout = true; // 自动结账，
+    let checkout_delay = 1500; // 结账延迟设置， 2500 = 2.5秒
+    let monitor_delay = 1000; // 刷新延迟
+    let restock_monitor_delay = 1000; // 补货延迟 1000 = 1秒
+    let form_fill_delay = 40; // 填表格延迟
 
     //Address info
     let billing_name = "us last";
@@ -33,7 +36,6 @@
     //=======================================================================================================
 
     let startTime = null;
-    let respondJSON = null;
     let isNew = true;
     let item_selected = false;
 
@@ -46,7 +48,7 @@
     let refresh_count = 0;
     document.getElementsByTagName('header')[0].appendChild(notifyHeader);
 
-    let retryFetch = async (url, options=null, retry=0) => {
+    async function retryFetch (url, options=null, retry=0) {
         if (retry >= 4) return Promise.resolve(1);
         let res = await fetch(url, options);
         if (res.status !== 200) {
@@ -55,7 +57,7 @@
         } else {
             return await res.json();
         }
-    };
+    }
 
     function matchKeyWord (itemName, keyWords) {
         let name = itemName.toLowerCase().trim();
@@ -68,11 +70,11 @@
             }
         }
         return true;
-    };
+    }
 
-    let sleep = (ms) => {
+    function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
-    };
+    }
 
     async function mobileAPIRefreshed(respond) {
         if (respond['products_and_categories'] == null || respond['products_and_categories']['new'] == null) {
@@ -104,36 +106,31 @@
         if (!item_selected) {
             notifyHeader.innerHTML = '监测新的产品。。。 次数： ' + refresh_count;
             refresh_count ++;
-            let refreshed = false;
                 
             let respond = await retryFetch(mobile_stock_api);
-            refreshed = respond == null ? false : await mobileAPIRefreshed(respond);
+            let refreshed = respond == null ? false : await mobileAPIRefreshed(respond);
             if (refreshed) {
-                respondJSON = respond;
                 startTime = new Date();
                 console.log("Detect Page refreshed with mobile endpoint at: " + startTime.toISOString());
-                notifyHeader.innerHTML = "新商品已经上线。。。如果页面没有跳转到商品页面请手动刷新并且重启程序。"
+                notifyHeader.innerHTML = "新商品已经上线。。。如果页面没有跳转到商品页面请手动刷新并且重启程序。";
                 window.location.href = isNew? 'https://www.supremenewyork.com/mobile/#categories/new' : ('https://www.supremenewyork.com/mobile/#categories/' + category);
                 await sleep(300);
                 start();
-                return;
             } else {
-                console.log("Not refreshed, retrying ...")
-                await sleep(1000);
+                console.log("Not refreshed, retrying ...");
+                await sleep(monitor_delay);
                 await monitor();
-                return;
             }
         }
     }
 
 
-    let start = () => {
-        console.log("start!!");
+    function start() {
         let items = document.getElementsByClassName("name");
         let selectedItem = null;
         if (items.length > 0) {
             notifyHeader.innerHTML = "寻找相应物品中。。。如有卡顿，请手动点击商品图片。";
-            for (item of items) {
+            for (let item of items) {
                 let name = item.innerHTML;
 
                 if (matchKeyWord(name, keyWord)) {
@@ -151,8 +148,6 @@
                         console.log('wait item click ...');
                         selectedItem.click();
                         setTimeout(function(){ waitTillItemClick(); }, 150);
-                    } else {
-                        return;
                     }
                 })();
             } else {
@@ -171,18 +166,17 @@
         } else {
             setTimeout(function(){ waitTillArticlePageIsOpen(); }, 150);
         }
-        return;
     })();
 
 
 
-    async function addToCart(){
+    async function addToCart () {
         if (document.getElementById('cart-update').children[0].innerHTML === "remove") {
             checkout();
             return;
         }
         notifyHeader.innerHTML = "选择相应颜色中。。。";
-        await chooseColor();
+        await chooseColor(0);
         notifyHeader.innerHTML = "颜色选择完毕。。。";
         await sleep(70);
         notifyHeader.innerHTML = "选择相应尺码中。。。";
@@ -197,29 +191,26 @@
             let cart = document.getElementById("goto-cart-link").innerHTML;
             if (cart == '' || cart == 0) {
                 setTimeout(function(){ waitTillCartUpdates(); }, 150);
-                return;
             } else {
-                // Click checkout button
                 notifyHeader.innerHTML = "已经加入购物车";
-                checkout()
-                return;
+                checkout();
             }
         })();
     }
 
 
-    async function chooseColor() {
+    async function chooseColor(times) {
         let image;
         let url = "/shop/"+window.location.hash.split("/")[1]+".json";
         let res = await fetch(url);
         let myJson = await res.json();
-        for (item of myJson.styles){
+        for (let item of myJson['styles']){
             let color = item.name;
-            if (checkAvaliability(item.sizes)) {
+            if (checkAvailability(item.sizes)) {
                 let id = item.id;
                 let imageID = "style-"+id;
                 image = document.getElementById(imageID).getElementsByClassName("style-thumb")[0]; 
-                if (color.toLowerCase().includes(preferColor.toLowerCase()) || preferColor.toLowerCase() === 'any') {
+                if (preferColor.toLowerCase() === 'any' || color.toLowerCase().includes(preferColor.toLowerCase())) {
                     image.click();
                     break;
                 }
@@ -227,11 +218,15 @@
         }
         if (image !== undefined) {
             image.click();
+        } else {
+            notifyHeader.innerHTML = "商品已卖完, 补货模式中: " + times;
+            await sleep(restock_monitor_delay);
+            await chooseColor(times + 1);
         }
     }
 
-    function checkAvaliability(sizes) {
-        for (size of sizes) {
+    function checkAvailability(sizes) {
+        for (let size of sizes) {
             if (size['stock_level'] > 0) {
                 return true;
             }
@@ -241,7 +236,7 @@
 
     function chooseSize(){
         let sizeOpts = document.getElementsByTagName("option");
-        let sizeVal = sizeOpts[0].value
+        let sizeVal = sizeOpts[0].value;
         for (let option of sizeOpts){
             let size = option.text.toLowerCase();
             if (size === preferredSize.toLowerCase() || size === 'N/A'){
@@ -249,104 +244,102 @@
                 break;
             }
         }
-        sizeOpts = document.getElementsByTagName("select")[0].value = sizeVal;
-
+        document.getElementsByTagName("select")[0].value = sizeVal;
     }
 
     function checkout(){
-        window.location.href = 'https://www.supremenewyork.com/mobile/#checkout';
-        let checkoutBtn = document.getElementById("submit_button");
+        document.getElementById('checkout-now').click();
         waitTillCheckoutPageIsOpen();
     }
 
     async function waitTillCheckoutPageIsOpen() {
 
-        checkoutBtn = document.getElementById("submit_button");
+        let checkoutBtn = document.getElementById("submit_button");
         if (checkoutBtn) {
             notifyHeader.innerHTML = "正在填写个人信息。。。";
-            await sleep(50);
+            await sleep(form_fill_delay);
             document.getElementById("order_billing_name").focus();
             document.getElementById("order_billing_name").value = billing_name;
 
-            await sleep(50);
+            await sleep(form_fill_delay);
             document.getElementById("order_email").focus();
             document.getElementById("order_email").value = order_email;
-            await sleep(50);
+            await sleep(form_fill_delay);
             document.getElementById("order_tel").focus();
             document.getElementById("order_tel").value = order_tel;
-            await sleep(50);
+            await sleep(form_fill_delay);
             document.getElementById("order_billing_address").focus();
             document.getElementById("order_billing_address").value = order_address;
 
             if (document.getElementById("order_billing_address_2")) {
-                await sleep(50);
+                await sleep(form_fill_delay);
                 document.getElementById("order_billing_address_2").focus();
                 document.getElementById("order_billing_address_2").value = order_billing_address_2;
             }
         
 
             if (document.getElementById("obz")) {
-                await sleep(50);
+                await sleep(form_fill_delay);
                 document.getElementById("obz").focus();
                 document.getElementById("obz").value = order_billing_zip;
             }
             if (document.getElementById("order_billing_zip")) {
-                await sleep(50);
+                await sleep(form_fill_delay);
                 document.getElementById("order_billing_zip").focus();
                 document.getElementById("order_billing_zip").value = order_billing_zip;
             }
-            await sleep(50);
+            await sleep(form_fill_delay);
 
             document.getElementById("order_billing_city").focus();
             document.getElementById("order_billing_city").value = order_billing_city;
 
             if (document.getElementById("order_billing_country")) {
-                await sleep(50);
+                await sleep(form_fill_delay);
                 document.getElementById("order_billing_country").value = order_billing_country;
                 document.getElementById("order_billing_country").dispatchEvent(event);
             }
 
             if (document.getElementById("order_billing_state")) {
-                await sleep(50);
+                await sleep(form_fill_delay);
                 document.getElementById("order_billing_state").focus();
                 document.getElementById("order_billing_state").value = order_billing_state;
                 document.getElementById("order_billing_state").dispatchEvent(event);
             }
         
             if (document.getElementById("credit_card_type")) {
-                await sleep(50);
+                await sleep(form_fill_delay);
                 document.getElementById("credit_card_type").value = credit_card_type;
                 document.getElementById("credit_card_type").dispatchEvent(event);
             }
             if (document.getElementById("credit_card_n")) {
-                await sleep(50);
+                await sleep(form_fill_delay);
                 document.getElementById("credit_card_n").focus();
                 document.getElementById("credit_card_n").value = cnb;
             }
             if (document.getElementById("credit_card_month")) {
-                await sleep(50);
+                await sleep(form_fill_delay);
                 document.getElementById("credit_card_month").focus();
                 document.getElementById("credit_card_month").value = month;
                 document.getElementById("credit_card_month").dispatchEvent(event);
             }
             if (document.getElementById("credit_card_year")) {
-                await sleep(50);
+                await sleep(form_fill_delay);
                 document.getElementById("credit_card_year").focus();
                 document.getElementById("credit_card_year").value = year;
                 document.getElementById("credit_card_year").dispatchEvent(event);
             }
             if (document.getElementById("cav")) {
-                await sleep(50);
+                await sleep(form_fill_delay);
                 document.getElementById("cav").focus();
                 document.getElementById("cav").value = vval;
             }
             if (document.getElementById("credit_card_cvv")) {
-                await sleep(50);
+                await sleep(form_fill_delay);
                 document.getElementById("credit_card_cvv").focus();
                 document.getElementById("credit_card_cvv").value = vval;
             }
 
-            await sleep(50);      
+            await sleep(form_fill_delay);
             document.getElementById("order_terms").click();
 
             notifyHeader.innerHTML = "填写完毕，请结账。。。";
@@ -357,14 +350,13 @@
             }
             console.log('paymentTime: ' + (new Date().getTime() - startTime) + ' ms');
             notifyHeader.remove();
-            return;
         } else {
-            setTimeout(async function(){ await waitTillCheckoutPageIsOpen(); }, 200);
+            setTimeout(async function(){ await waitTillCheckoutPageIsOpen(); }, 100);
             console.log("waiting to Chekcout...");
         }
     }
 
     monitor()
-})()
+})();
 
-completion()
+completion();
