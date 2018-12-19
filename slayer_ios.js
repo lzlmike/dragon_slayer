@@ -1,19 +1,39 @@
 (function () {
     //屠龙0.0.3  版权归 “潮目 - Hypeeyes”所有，未经授权不得转发
-    let keyWord = '+box, +logo';  // +box,+logo,-bear
-    let categories = ["Jackets", "Coats", "Shirts", "Tops/Sweaters", "Sweatshirts", "Pants", "Shorts", "T-Shirts", "Hats", "Bags", "Accessories", "Shoes", "Skate"]
+
+    let categories = ["Jackets", "Coats", "Shirts", "Tops/Sweaters", "Sweatshirts", "Pants", "Shorts", "T-Shirts", "Hats", "Bags", "Accessories", "Shoes", "Skate", "new"];
     // 0 -> "Jackets", 1 -> "Coats", 2-> "Shirts", 3 -> "Tops/Sweaters", 4 ->"Sweatshirts", 5->"Pants", 6->"Shorts", 7->"T-Shirts",
     //8-> "Hats", 9->"Bags", 10->"Accessories", 11->"Shoes", 12->"Skate"
-    let category = categories[10];
-    let preferredSize = 'any';  // 尺码没有了会选择默认尺码
-    let preferColor = 'any'; // 颜色没有了回选最后一个有货的，填any回选第一个颜色有货的
-    let autoCheckout = true; // 自动结账，
+
+    let items = [
+        {
+            keyWords: "+tagless, +tee",
+            category: categories[10],
+            preferredSize: "any",
+            preferColor: "any"
+        },
+        {
+            keyWords: "+Jesus, +Mary",
+            category: categories[4],
+            preferredSize: "any",
+            preferColor: "any"
+        },
+        {
+            keyWords: "+supreme, +ny",
+            category: categories[8],
+            preferredSize: "any",
+            preferColor: "any"
+        },
+    ];
+
+    let autoCheckout = false; // 自动结账，
     let checkout_delay = 1500; // 结账延迟设置， 2500 = 2.5秒
     let monitor_delay = 1000; // 刷新延迟
     let restock_monitor_delay = 1000; // 补货延迟 1000 = 1秒
     let form_fill_delay = 40; // 填表格延迟
 
     //Address info
+    let area = "USA"; // "CANADA", "other"
     let billing_name = "us last";
     let order_email = "test@gmail.com";
     let order_tel = "1112223344";
@@ -36,8 +56,10 @@
     //=======================================================================================================
 
     let startTime = null;
-    let isNew = true;
     let item_selected = false;
+    let products = null;
+    let domItemIndex = 0;
+    let add_requests = [];
 
     let mobile_stock_api = "https://www.supremenewyork.com/mobile_stock.json";
     let event = document.createEvent('Event');
@@ -80,26 +102,30 @@
         if (respond['products_and_categories'] == null || respond['products_and_categories']['new'] == null) {
             return false;
         }
-        let newProducts = respond['products_and_categories']['new'];
-        for (let index = 0; index < newProducts.length; index ++) {
-            let item =newProducts[index];
-            if (item != null && item['name'] != null && matchKeyWord(item['name'], keyWord)) {
-                isNew = true;
-                return true;
-            }
-        }
+        products = respond['products_and_categories'];
+        for (let i = 0; i < items.length; i ++) {
+            let category = items[i]['category'];
+            let categoryProduct = products[category];
+            if (categoryProduct !== undefined) {
 
-        let categoryProduct = respond['products_and_categories'][category];
-        if (categoryProduct != undefined) {
-            for (let index = 0; index < categoryProduct.length; index ++) {
-                let item =categoryProduct[index];
-                if (item != null && item['name'] != null && matchKeyWord(item['name'], keyWord)) {
-                    isNew = false;
-                    return true;
+                for (let index = 0; index < categoryProduct.length; index++) {
+                    let item = categoryProduct[index];
+                    for (let j = 0; j < items.length; j++) {
+                        if (itemNameMatch(item, items[j])) {
+                            domItemIndex = j;
+                            return true;
+                        }
+                    }
                 }
             }
         }
+
         return false;
+    }
+
+    function itemNameMatch(item, wantedItem) {
+        console.log(item['name'] + ' : ' + wantedItem['keyWords'])
+        return item != null && item['name'] != null && matchKeyWord(item['name'], wantedItem['keyWords'])
     }
 
     async function monitor() {
@@ -108,12 +134,15 @@
             refresh_count ++;
                 
             let respond = await retryFetch(mobile_stock_api);
+            console.error('hi')
             let refreshed = respond == null ? false : await mobileAPIRefreshed(respond);
             if (refreshed) {
+                //parsedProducts = await getItemsInfo();
                 startTime = new Date();
-                console.log("Detect Page refreshed with mobile endpoint at: " + startTime.toISOString());
+                let category = items[domItemIndex].category;
+                console.warn("Detect Page refreshed with mobile endpoint at: " + startTime.toISOString());
                 notifyHeader.innerHTML = "新商品已经上线。。。如果页面没有跳转到商品页面请手动刷新并且重启程序。";
-                window.location.href = isNew? 'https://www.supremenewyork.com/mobile/#categories/new' : ('https://www.supremenewyork.com/mobile/#categories/' + category);
+                window.location.href = 'https://www.supremenewyork.com/mobile/#categories/' + category;
                 await sleep(300);
                 start();
             } else {
@@ -126,25 +155,25 @@
 
 
     function start() {
-        let items = document.getElementsByClassName("name");
+        let listed_items = document.getElementsByClassName("name");
         let selectedItem = null;
-        if (items.length > 0) {
+        if (listed_items.length > 0) {
             notifyHeader.innerHTML = "寻找相应物品中。。。如有卡顿，请手动点击商品图片。";
-            for (let item of items) {
+            for (let item of listed_items) {
                 let name = item.innerHTML;
 
-                if (matchKeyWord(name, keyWord)) {
+                if (matchKeyWord(name, items[domItemIndex].keyWords)) {
                     startTime = new Date().getTime();
                     selectedItem =item;
                     selectedItem.click();
                     break;
                 }
-            }
+            }//
 
             if (selectedItem !== null) {
                 (function waitTillItemClick() {
-                    items = document.getElementsByClassName("name");
-                    if (items.length > 0) {
+                    listed_items = document.getElementsByClassName("name");
+                    if (listed_items.length > 0) {
                         console.log('wait item click ...');
                         selectedItem.click();
                         setTimeout(function(){ waitTillItemClick(); }, 150);
@@ -210,7 +239,7 @@
                 let id = item.id;
                 let imageID = "style-"+id;
                 image = document.getElementById(imageID).getElementsByClassName("style-thumb")[0]; 
-                if (preferColor.toLowerCase() === 'any' || color.toLowerCase().includes(preferColor.toLowerCase())) {
+                if (items[domItemIndex].preferColor.toLowerCase() === 'any' || color.toLowerCase().includes(items[domItemIndex].preferColor.toLowerCase())) {
                     image.click();
                     break;
                 }
@@ -239,7 +268,7 @@
         let sizeVal = sizeOpts[0].value;
         for (let option of sizeOpts){
             let size = option.text.toLowerCase();
-            if (size === preferredSize.toLowerCase() || size === 'N/A'){
+            if (size === items[domItemIndex].preferredSize.toLowerCase() || size === 'N/A'){
                 sizeVal =  option.value;
                 break;
             }
@@ -247,10 +276,105 @@
         document.getElementsByTagName("select")[0].value = sizeVal;
     }
 
-    function checkout(){
+    async function checkout(){
+        await addExtraItemByRequest();
         document.getElementById('checkout-now').click();
         waitTillCheckoutPageIsOpen();
     }
+
+    async function addExtraItemByRequest() {
+        let promises = [];
+        for (let i = 0; i < items.length; i ++) {
+            if (i !== domItemIndex) {
+                let selectedItem = items[i];
+                promises.push(getSingleItemInfo(selectedItem))
+            }
+        }
+
+        await Promise.all(promises);
+        await addItems();
+
+
+    }
+
+    async function addItems() {
+        for (let k = 0; k < add_requests.length; k++) {
+            let addRequest = add_requests[k];
+            await addOrRemoveItem(addRequest, area);
+        }
+    }
+
+    async function addOrRemoveItem(itemInfo, area) {
+        let styleParam = (area === 'USA' || area === 'CANADA') ? 'st': 'style';
+        let sizeParam = (area === 'USA' || area === 'CANADA') ? 's': 'size';
+        let param = `utf8=%E2%9C%93&qty=1&${styleParam}=${itemInfo.style}&${sizeParam}=${itemInfo.size}&commit=add+to+cart`;
+        let payLoad = {
+            method: "POST",
+            headers: {
+                "x-requested-with": "XMLHttpRequest",
+                "content-type":	"application/x-www-form-urlencoded"
+            },
+            body: param,
+        };
+        return retryFetch(`https://www.supremenewyork.com/shop/${itemInfo.itemId}/add.json`, payLoad, 0);
+    }
+
+    async function getSingleItemInfo(item) {
+        let new_items = products[item['category']];
+        for (let index = 0; index < new_items.length; index ++) {
+            let each_item = new_items[index];
+            if (matchKeyWord(each_item ['name'], item['keyWords'])) {
+                return fetchItem(each_item['id'], item );
+            }
+        }
+
+    }
+
+    function fetchItem(itemId, item) {
+        return retryFetch(`/shop/${itemId}.json`)
+            .then(respond => {
+                let atcObject = getAtcObject(respond['styles'], item);
+                if (atcObject.s != null) {
+                    add_requests.push({'size': atcObject.s, 'style': atcObject.st, 'itemId': itemId});
+                }
+            });
+    }
+
+    function getAtcObject(possibleItems, item) {
+        let style = null;
+        for (let i = 0; i < possibleItems.length; i ++) {
+            let each = possibleItems[i];
+            if (matchKeyWord(each['name'], item['preferColor'])) {
+                let size = getSize(each, item['preferredSize']);
+                if (size != null) {
+                    return {'st': each['id'], 's': size};
+                }
+            }
+        }
+        return {'st': style, 's': null};
+    }
+
+    function getSize(each, wantedSize) {
+        let sizes = each['sizes'];
+        let pickedSize = null;
+        for (let j = 0; j < sizes.length; j ++) {
+            let size = sizes[j];
+            let lowerWantedSize = wantedSize.toLowerCase();
+            let currentSize = size['name'].toLowerCase();
+            if (size['stock_level'] > 0) {
+                if (pickedSize == null) {
+                    pickedSize = size['id'];
+                }
+                if (lowerWantedSize === 'any' || currentSize === lowerWantedSize || size['name'] === 'N/A') {
+                    pickedSize = size['id'];
+                    break;
+                }
+            }
+        }
+        return pickedSize;
+    }
+
+
 
     async function waitTillCheckoutPageIsOpen() {
 
